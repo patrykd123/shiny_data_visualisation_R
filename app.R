@@ -2,13 +2,17 @@ library(shiny)
 library(readxl)
 library(dplyr)
 
-# Load data
 df <- read_excel("rent-poznan.xlsx")
 
-# Quick data prep
 df <- df %>%
   mutate(
-    price_per_m2 = round(price / flat_area, 2)
+    price_per_m2 = round(price / flat_area, 2),
+    rooms_cat = case_when(
+      flat_rooms == 1 ~ "1 room",
+      flat_rooms == 2 ~ "2 rooms",
+      flat_rooms == 3 ~ "3 rooms",
+      TRUE ~ "4+ rooms"
+    )
   )
 
 ui <- fluidPage(
@@ -16,26 +20,55 @@ ui <- fluidPage(
   
   sidebarLayout(
     sidebarPanel(
+      width = 3,
       h4("Filters"),
-      p("diltry"),
+      
+      sliderInput("price_range", "Price (PLN):",
+                  min = 0, max = 10000, 
+                  value = c(0, 5000), step = 100),
+      
+      sliderInput("area_range", "Area (m²):",
+                  min = 0, max = 200, 
+                  value = c(0, 150), step = 5),
+      
+      checkboxGroupInput("rooms_filter", "Number of rooms:",
+                         choices = c("1 room", "2 rooms", "3 rooms", "4+ rooms"),
+                         selected = c("1 room", "2 rooms", "3 rooms", "4+ rooms")),
+      
       hr(),
-      p(paste("Dataset loaded:", nrow(df), "listings"))
+      textOutput("filter_summary")
     ),
     
     mainPanel(
-      h3("Data Preview"),
-      p("Dane zaladowane."),
-      tableOutput("preview_table")
+      width = 9,
+      h3("Filtered Data"),
+      tableOutput("data_table")
     )
   )
 )
 
 server <- function(input, output, session) {
   
-  output$preview_table <- renderTable({
+  # Reactive filtered data
+  filtered_data <- reactive({
     df %>%
+      filter(
+        price >= input$price_range[1],
+        price <= input$price_range[2],
+        flat_area >= input$area_range[1],
+        flat_area <= input$area_range[2],
+        rooms_cat %in% input$rooms_filter
+      )
+  })
+  
+  output$filter_summary <- renderText({
+    paste("Showing", nrow(filtered_data()), "of", nrow(df), "listings")
+  })
+  
+  output$data_table <- renderTable({
+    filtered_data() %>%
       select(quarter, price, flat_area, flat_rooms, price_per_m2) %>%
-      head(10)
+      head(20)
   })
   
 }
