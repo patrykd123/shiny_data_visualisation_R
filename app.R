@@ -2,6 +2,7 @@ library(shiny)
 library(readxl)
 library(dplyr)
 library(ggplot2)
+library(scales)
 
 df <- read_excel("rent-poznan.xlsx")
 
@@ -18,6 +19,14 @@ df <- df %>%
       levels = c("1 room", "2 rooms", "3 rooms", "4+ rooms")
     )
   )
+
+# Color palette (starting to think about UEP green theme)
+colors <- c(
+  primary = "#1B5E20",
+  secondary = "#388E3C", 
+  accent = "#4CAF50",
+  light = "#81C784"
+)
 
 ui <- fluidPage(
   titlePanel("Poznań Rental Market Analysis"),
@@ -46,37 +55,62 @@ ui <- fluidPage(
     mainPanel(
       width = 9,
       
-      # Summary statistics row
-      fluidRow(
-        column(3, wellPanel(
-          h5("Total Listings"),
-          h3(textOutput("stat_count"))
-        )),
-        column(3, wellPanel(
-          h5("Average Price"),
-          h3(textOutput("stat_avg_price"))
-        )),
-        column(3, wellPanel(
-          h5("Average Area"),
-          h3(textOutput("stat_avg_area"))
-        )),
-        column(3, wellPanel(
-          h5("Avg Price/m²"),
-          h3(textOutput("stat_price_m2"))
-        ))
-      ),
-      
-      hr(),
-      
-      # Histogram
-      h4("Price Distribution"),
-      plotOutput("price_histogram", height = "300px"),
-      
-      hr(),
-      
-      # Data table
-      h4("Sample Data"),
-      tableOutput("data_table")
+      tabsetPanel(
+        type = "tabs",
+        
+        # Overview Tab
+        tabPanel("Overview",
+                 br(),
+                 fluidRow(
+                   column(3, wellPanel(
+                     h5("Total Listings"), h3(textOutput("stat_count"))
+                   )),
+                   column(3, wellPanel(
+                     h5("Average Price"), h3(textOutput("stat_avg_price"))
+                   )),
+                   column(3, wellPanel(
+                     h5("Average Area"), h3(textOutput("stat_avg_area"))
+                   )),
+                   column(3, wellPanel(
+                     h5("Avg Price/m²"), h3(textOutput("stat_price_m2"))
+                   ))
+                 ),
+                 fluidRow(
+                   column(6, 
+                          h4("Price Distribution"),
+                          plotOutput("price_histogram", height = "280px")
+                   ),
+                   column(6,
+                          h4("Room Distribution"),
+                          plotOutput("rooms_chart", height = "280px")
+                   )
+                 )
+        ),
+        
+        # Price Analysis Tab
+        tabPanel("Price Analysis",
+                 br(),
+                 h4("Price vs Area"),
+                 plotOutput("scatter_plot", height = "400px"),
+                 hr(),
+                 fluidRow(
+                   column(6,
+                          h4("Price by Room Count"),
+                          plotOutput("price_by_rooms", height = "280px")
+                   ),
+                   column(6,
+                          h4("Price per m² by Rooms"),
+                          plotOutput("price_m2_by_rooms", height = "280px")
+                   )
+                 )
+        ),
+        
+        # Data Tab
+        tabPanel("Data",
+                 br(),
+                 tableOutput("data_table")
+        )
+      )
     )
   )
 )
@@ -118,20 +152,72 @@ server <- function(input, output, session) {
   # Histogram
   output$price_histogram <- renderPlot({
     ggplot(filtered_data(), aes(x = price)) +
-      geom_histogram(bins = 40, fill = "#2E7D32", color = "white", alpha = 0.8) +
-      scale_x_continuous(labels = scales::comma_format(), limits = c(0, 6000)) +
+      geom_histogram(bins = 40, fill = colors["primary"], color = "white", alpha = 0.9) +
+      scale_x_continuous(labels = comma_format(), limits = c(0, 6000)) +
       labs(x = "Price (PLN)", y = "Count") +
       theme_minimal() +
-      theme(
-        text = element_text(size = 12),
-        panel.grid.minor = element_blank()
-      )
+      theme(panel.grid.minor = element_blank())
+  })
+  
+  # Room distribution
+  output$rooms_chart <- renderPlot({
+    room_counts <- filtered_data() %>%
+      count(rooms_cat)
+    
+    ggplot(room_counts, aes(x = rooms_cat, y = n, fill = rooms_cat)) +
+      geom_col() +
+      scale_fill_manual(values = c(colors["primary"], colors["secondary"], 
+                                   colors["accent"], colors["light"])) +
+      labs(x = NULL, y = "Count") +
+      theme_minimal() +
+      theme(legend.position = "none", panel.grid.minor = element_blank())
+  })
+  
+  # Scatter plot
+  output$scatter_plot <- renderPlot({
+    sample_data <- filtered_data() %>%
+      filter(flat_area <= 150, price <= 6000) %>%
+      sample_n(min(nrow(.), 2000))
+    
+    ggplot(sample_data, aes(x = flat_area, y = price, color = rooms_cat)) +
+      geom_point(alpha = 0.5, size = 2) +
+      geom_smooth(method = "lm", se = FALSE) +
+      scale_color_manual(values = c(colors["primary"], colors["secondary"], 
+                                    colors["accent"], "#FF8F00")) +
+      scale_y_continuous(labels = comma_format()) +
+      labs(x = "Area (m²)", y = "Price (PLN)", color = "Rooms") +
+      theme_minimal() +
+      theme(legend.position = "bottom", panel.grid.minor = element_blank())
+  })
+  
+  # Boxplots
+  output$price_by_rooms <- renderPlot({
+    ggplot(filtered_data() %>% filter(price <= 5000), 
+           aes(x = rooms_cat, y = price, fill = rooms_cat)) +
+      geom_boxplot() +
+      scale_fill_manual(values = c(colors["primary"], colors["secondary"], 
+                                   colors["accent"], colors["light"])) +
+      scale_y_continuous(labels = comma_format()) +
+      labs(x = NULL, y = "Price (PLN)") +
+      theme_minimal() +
+      theme(legend.position = "none", panel.grid.minor = element_blank())
+  })
+  
+  output$price_m2_by_rooms <- renderPlot({
+    ggplot(filtered_data() %>% filter(price_per_m2 <= 80), 
+           aes(x = rooms_cat, y = price_per_m2, fill = rooms_cat)) +
+      geom_boxplot() +
+      scale_fill_manual(values = c(colors["primary"], colors["secondary"], 
+                                   colors["accent"], colors["light"])) +
+      labs(x = NULL, y = "Price per m² (PLN)") +
+      theme_minimal() +
+      theme(legend.position = "none", panel.grid.minor = element_blank())
   })
   
   output$data_table <- renderTable({
     filtered_data() %>%
       select(quarter, price, flat_area, flat_rooms, price_per_m2) %>%
-      head(10)
+      head(25)
   })
   
 }
